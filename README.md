@@ -94,6 +94,12 @@ AVIATIONSTACK_API_KEY=your_aviationstack_api_key
 DATABASE_URL=postgresql://postgres:postgres@localhost:5433/langgraph_memory_demo
 
 
+Create Key from below
+  - Groq → https://console.groq.com
+  - Tavily → https://tavily.com
+  - AviationStack → https://aviationstack.com
+
+
 ---
 
 # Step 6: Get API Keys

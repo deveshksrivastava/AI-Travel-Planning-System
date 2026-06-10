@@ -139,7 +139,9 @@ graph.add_edge("final_agent", END)
 
 
 # Persistent connection so both CLI and Streamlit can share the compiled app
-_conn = psycopg.connect(DATABASE_URL)
+# autocommit is required by PostgresSaver.setup() (CREATE INDEX CONCURRENTLY
+# cannot run inside a transaction block)
+_conn = psycopg.connect(DATABASE_URL, autocommit=True)
 checkpointer = PostgresSaver(_conn)
 checkpointer.setup()
 
