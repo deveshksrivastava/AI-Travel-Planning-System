@@ -9,10 +9,13 @@ CREATE DATABASE langgraph_memory;  ( or open pgadmin4 and create database there 
 # main.py
 
 import os
+import atexit
 from typing import TypedDict, Annotated
 import operator
 
 import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from langchain_core.messages import (
@@ -137,13 +140,38 @@ graph.add_edge("hotel_agent", "itinerary_agent")
 graph.add_edge("itinerary_agent", "final_agent")
 graph.add_edge("final_agent", END)
 
+# START
 
-# Persistent connection so both CLI and Streamlit can share the compiled app
+# flight_agent
+# hotel_agent
+# itinerary_agent
+# final_agent
+# END
+
+# Connection pool shared by both the CLI and the long-running Streamlit app.
+# A pool (rather than a single global connection) survives idle drops and
+# Postgres restarts: check_connection validates — and transparently replaces —
+# dead connections before they are handed out, so a long-lived process no
+# longer fails with "server closed the connection unexpectedly".
 # autocommit is required by PostgresSaver.setup() (CREATE INDEX CONCURRENTLY
-# cannot run inside a transaction block)
-_conn = psycopg.connect(DATABASE_URL, autocommit=True)
-checkpointer = PostgresSaver(_conn)
+# cannot run inside a transaction block).
+_pool = ConnectionPool(
+    conninfo=DATABASE_URL,
+    max_size=20,
+    check=ConnectionPool.check_connection,
+    kwargs={
+        "autocommit": True,
+        "prepare_threshold": 0,
+        "row_factory": dict_row,
+    },
+    open=True,
+)
+checkpointer = PostgresSaver(_pool)
 checkpointer.setup()
+
+# Close the pool's worker threads cleanly on process exit (avoids noisy
+# "couldn't stop thread" warnings when the CLI finishes a run).
+atexit.register(_pool.close)
 
 app = graph.compile(checkpointer=checkpointer)
 
