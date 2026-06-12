@@ -1,5 +1,17 @@
 import os
 import streamlit as st
+
+# On Streamlit Community Cloud there is no .env file — keys live in the app's
+# Secrets panel (st.secrets). Copy them into os.environ BEFORE importing main,
+# which reads DATABASE_URL and the API keys at import time. Locally, where no
+# secrets.toml exists, st.secrets raises and we fall through to .env as before.
+try:
+    for _key, _value in st.secrets.items():
+        if isinstance(_value, str) and _key not in os.environ:
+            os.environ[_key] = _value
+except Exception:
+    pass
+
 from datetime import datetime
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command

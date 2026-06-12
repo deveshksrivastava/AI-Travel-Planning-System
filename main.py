@@ -46,6 +46,14 @@ mcp_client = MultiServerMCPClient(
             "command": sys.executable,
             "args": [_MCP_SERVER],
             "transport": "stdio",
+            # The stdio subprocess gets a minimal default environment, not a
+            # copy of os.environ. Locally the server re-reads .env itself, but
+            # on Streamlit Cloud no .env exists — pass the keys explicitly.
+            "env": {
+                "PATH": os.environ.get("PATH", ""),
+                "AVIATIONSTACK_API_KEY": os.environ.get("AVIATIONSTACK_API_KEY", ""),
+                "TAVILY_API_KEY": os.environ.get("TAVILY_API_KEY", ""),
+            },
         }
     }
 )
