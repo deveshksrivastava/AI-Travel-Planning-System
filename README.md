@@ -84,15 +84,19 @@ flowchart TB
 
 # Flow Diagram
 
-Execution is **sequential**: each agent runs in a fixed order, writing its
-results into the shared state. After all four agents complete, the state is
-checkpointed to PostgreSQL and the final response is returned.
+Execution is **sequential with one human checkpoint**: the search agents fetch
+data through the **MCP server**, then the graph **pauses** (`interrupt()`) so a
+human can approve the results or send feedback (which re-runs the search).
+After approval, the itinerary and final agents complete, the state is
+checkpointed to PostgreSQL, and the final response is returned.
 
 ```mermaid
 flowchart LR
-    START([START]) --> FA["✈️ Flight Agent<br/>search_flights()"]
-    FA --> HA["🏨 Hotel Agent<br/>tavily_search()"]
-    HA --> IA["🗓️ Itinerary Agent<br/>llm.invoke()"]
+    START([START]) --> FA["✈️ Flight Agent<br/>MCP: search_flights"]
+    FA --> HA["🏨 Hotel Agent<br/>MCP: search_hotels"]
+    HA --> HR{"🙋 Human Review<br/>interrupt()"}
+    HR -- approve --> IA["🗓️ Itinerary Agent<br/>llm.invoke()"]
+    HR -- feedback --> FA
     IA --> FRA["🤖 Final Response Agent<br/>llm.invoke()"]
     FRA --> END([END])
 
@@ -101,6 +105,12 @@ flowchart LR
     IA -. writes .-> S3[/"itinerary"/]
     FRA -. writes .-> S4[/"final messages"/]
 ```
+
+> 📖 The tools are no longer imported directly — they are served by
+> `mcp_server/travel_mcp.py` (a separate process) and called over the
+> **Model Context Protocol**. See
+> [human-in-loop-with-mcp.md](human-in-loop-with-mcp.md) for a full guide and
+> `src/mcp_hitl_demo.py` for a minimal standalone demo.
 
 ### Step-by-step
 
@@ -116,11 +126,13 @@ sequenceDiagram
 
     User->>App: Travel request (user_query)
     App->>Flight: invoke with TravelState
-    Flight->>Flight: AviationStack → flight_results
+    Flight->>Flight: MCP server → flight_results
     Flight-->>App: updated state
     App->>Hotel: invoke
-    Hotel->>Hotel: Tavily → hotel_results
+    Hotel->>Hotel: MCP server → hotel_results
     Hotel-->>App: updated state
+    App-->>User: ⏸ interrupt — review search results
+    User->>App: approve (or feedback → search again)
     App->>Itin: invoke
     Itin->>Itin: Groq LLM → itinerary
     Itin-->>App: updated state
@@ -158,6 +170,8 @@ Run the following command:
 		pip install langgraph langchain langchain-openai langchain-groq langchain-community langchain-tavily psycopg[binary] psycopg_pool python-dotenv tavily-python requests streamlit
 
 		pip install -U "psycopg[binary,pool]"  langgraph-checkpoint-postgres
+
+		pip install mcp langchain-mcp-adapters
 
 ---
 
@@ -256,9 +270,10 @@ Plan a complete 7 days Japan trip including flights, hotels and sightseeing unde
 
 # Project Workflow
 
-1. Flight Agent searches flights
-2. Hotel Agent searches hotels
-3. Itinerary Agent creates travel plan
-4. Final Agent combines everything together
-5. PostgreSQL stores conversation memory
+1. Flight Agent searches flights (via MCP server)
+2. Hotel Agent searches hotels (via MCP server)
+3. **Human reviews the results** — approve, or give feedback to search again (CLI; the web UI auto-approves for now)
+4. Itinerary Agent creates travel plan
+5. Final Agent combines everything together
+6. PostgreSQL stores conversation memory
 

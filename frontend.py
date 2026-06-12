@@ -2,6 +2,7 @@ import os
 import streamlit as st
 from datetime import datetime
 from langchain_core.messages import HumanMessage
+from langgraph.types import Command
 from main import app
 
 st.set_page_config(
@@ -377,6 +378,7 @@ generate = st.button("🚀  Generate My Travel Plan", use_container_width=True)
 AGENT_META = {
     "flight_agent":    ("✈️", "Flight Agent"),
     "hotel_agent":     ("🏨", "Hotel Agent"),
+    "human_review":    ("🙋", "Human Review"),
     "itinerary_agent": ("🗓️", "Itinerary Agent"),
     "final_agent":     ("🧠", "Final Agent"),
 }
@@ -393,18 +395,19 @@ if generate:
         st.markdown("<div class='sec-head'><span>🤖 Agent Pipeline — Live</span></div>",
                     unsafe_allow_html=True)
 
-        for chunk in app.stream(
-            {
-                "messages": [HumanMessage(content=user_query)],
-                "user_query": user_query,
-                "flight_results": "",
-                "hotel_results": "",
-                "itinerary": "",
-                "llm_calls": 0,
-            },
-            config=config,
-            stream_mode="updates",
-        ):
+        # The graph pauses at human_review (interrupt). The web UI has no
+        # review form yet, so we auto-approve to keep the pipeline flowing;
+        # interactive review is available in the CLI (python main.py).
+        stream_input = {
+            "messages": [HumanMessage(content=user_query)],
+            "user_query": user_query,
+            "flight_results": "",
+            "hotel_results": "",
+            "itinerary": "",
+            "llm_calls": 0,
+            "approved": False,
+        }
+        def render_chunk(chunk):
             for node_name, state_update in chunk.items():
                 icon, label = AGENT_META.get(node_name, ("🔧", node_name))
 
@@ -419,6 +422,10 @@ if generate:
                         collected["hotel_results"] = text
                         st.markdown(text or "_No hotel data returned._")
 
+                    elif node_name == "human_review":
+                        st.markdown("_Search results auto-approved "
+                                    "(interactive review available in the CLI: `python main.py`)._")
+
                     elif node_name == "itinerary_agent":
                         text = state_update.get("itinerary", "")
                         collected["itinerary"] = text
@@ -431,6 +438,19 @@ if generate:
                         st.markdown(text or "_No final response._")
 
                     collected["llm_calls"] = state_update.get("llm_calls", collected["llm_calls"])
+
+        # Stream live; when the graph pauses at human_review, auto-approve
+        # and resume so the pipeline completes.
+        while True:
+            interrupted = False
+            for chunk in app.stream(stream_input, config=config, stream_mode="updates"):
+                if "__interrupt__" in chunk:
+                    interrupted = True
+                    continue
+                render_chunk(chunk)
+            if not interrupted:
+                break
+            stream_input = Command(resume="approve")
 
         # Metrics
         st.markdown(f"""
