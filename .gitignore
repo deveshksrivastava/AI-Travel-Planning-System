@@ -6,6 +6,8 @@
 *.key
 secrets.json
 credentials.json
+.learn
+
 
 # ---- Python ----
 __pycache__/

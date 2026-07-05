@@ -53,9 +53,9 @@ mcp_client = MultiServerMCPClient(
     {
         "travel": {
             "command": sys.executable,      # this venv's python
-            "args": [SERVER_PATH],
-            "transport": "stdio",
-        }
+            "args": [SERVER_PATH],          # the server script to run (a separate process)
+            "transport": "stdio",           # talk stdio (MCP protocol) with that server process
+        }   
     }
 )
 
@@ -189,3 +189,7 @@ if __name__ == "__main__":
 
     print("\n================ FINAL SUMMARY ================\n")
     print(result["summary"])
+
+
+# How to run this demo:
+# source langgraph_env3/bin/activate && python src/mcp_hitl_demo.py "5 day trip to Tokyo"
