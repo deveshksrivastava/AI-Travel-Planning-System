@@ -146,9 +146,6 @@ Now activate the environment:
 
 		langgraph_env3\Scripts\activate
 
-
-#### YouTube Tuturial (Hindi) - https://youtu.be/ctHby5vhDqg
-
 ---
 
 # Step 2: Install Dependencies
