@@ -7,8 +7,6 @@
 # https://aviationstack.com/ 
 # pip install requests
 
-
-    
 import os
 import requests
 from dotenv import load_dotenv
@@ -51,11 +49,11 @@ def search_flights(query):
 
             flights.append(
                 f"""
-Airline: {airline}
-Departure: {departure}
-Arrival: {arrival}
-Status: {status}
-"""
+                    Airline: {airline}
+                    Departure: {departure}
+                    Arrival: {arrival}
+                    Status: {status}
+                    """
             )
 
     return "\n".join(flights)

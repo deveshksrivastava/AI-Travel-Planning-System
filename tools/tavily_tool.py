@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 # https://www.tavily.com/ 
 # Signup and login, On dashboard- > under api keys you will see the default key.
 # Use that or click on + to create new one. Then save it in .env file
@@ -22,8 +21,6 @@ client = TavilyClient(
 # print(response)
 
 ####################################
-
-
 
 def tavily_search(query):
     response = client.search(

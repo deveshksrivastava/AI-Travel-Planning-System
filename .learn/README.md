@@ -130,7 +130,9 @@ sequenceDiagram
     App->>DB: checkpoint state (thread_id)
     App-->>User: Final travel plan
 ```
+\
 
+#### YouTube Tuturial (Hindi) - https://youtu.be/ctHby5vhDqg
 ---
 
 # Step 1: Create Python Environment
@@ -145,8 +147,6 @@ Now activate the environment:
 #### Windows
 
 		langgraph_env3\Scripts\activate
-
-
 
 
 ---
