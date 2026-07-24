@@ -9,18 +9,28 @@ This skill helps you work with the AI Travel Planning System in this repository.
 
 ## Architecture
 
-A sequential LangGraph pipeline sharing a `TravelState`:
+A sequential LangGraph pipeline sharing a `TravelState`, with one
+human-in-the-loop pause:
 
 ```
-START → flight_agent → hotel_agent → itinerary_agent → final_agent → END
+START → flight_agent → hotel_agent → human_review ⏸ → itinerary_agent → final_agent → END
+                            ▲              │
+                            └── feedback ──┘   (approve → continue)
 ```
 
 | Agent | Source | Backed by |
 |---|---|---|
-| `flight_agent` | `main.py` → `tools/flight_tool.py` | AviationStack API |
-| `hotel_agent` | `main.py` → `tools/tavily_tool.py` | Tavily Search API |
+| `flight_agent` | `main.py` → `call_mcp("search_flights", ...)` | MCP server → AviationStack API |
+| `hotel_agent` | `main.py` → `call_mcp("search_hotels", ...)` | MCP server → Tavily Search API |
+| `human_review` | `main.py` | `interrupt()` — human approves or sends feedback |
 | `itinerary_agent` | `main.py` | Groq `llama-3.3-70b-versatile` |
 | `final_agent` | `main.py` | Groq `llama-3.3-70b-versatile` |
+
+Tools are served by `mcp_server/travel_mcp.py` (spawned over stdio); always
+call them via `call_mcp()` in `main.py` (bridges async MCP into the sync
+graph). Every run pauses at `human_review` — callers must handle the
+`"__interrupt__"` result key and resume with `Command(resume=...)`.
+See `human-in-loop-with-mcp.md` and the demo `src/mcp_hitl_demo.py`.
 
 State lives in `TravelState` (TypedDict). Memory is persisted per `thread_id`
 via `PostgresSaver`.
