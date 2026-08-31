@@ -19,8 +19,8 @@ START → flight_agent → hotel_agent → itinerary_agent → final_agent → E
 |---|---|---|
 | `flight_agent` | `main.py` → `tools/flight_tool.py` | AviationStack API |
 | `hotel_agent` | `main.py` → `tools/tavily_tool.py` | Tavily Search API |
-| `itinerary_agent` | `main.py` | Groq `llama-3.3-70b-versatile` |
-| `final_agent` | `main.py` | Groq `llama-3.3-70b-versatile` |
+| `itinerary_agent` | `main.py` | Groq `openai/gpt-oss-120b` |
+| `final_agent` | `main.py` | Groq `openai/gpt-oss-120b` |
 
 State lives in `TravelState` (TypedDict). Memory is persisted per `thread_id`
 via `PostgresSaver`.

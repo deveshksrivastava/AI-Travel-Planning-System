@@ -20,7 +20,7 @@ START → flight_agent → hotel_agent → itinerary_agent → final_agent → E
 
 - `flight_agent` → `tools/flight_tool.py::search_flights` (AviationStack API)
 - `hotel_agent`  → `tools/tavily_tool.py::tavily_search` (Tavily Search API)
-- `itinerary_agent` / `final_agent` → Groq LLM (`llama-3.3-70b-versatile`)
+- `itinerary_agent` / `final_agent` → Groq LLM (`openai/gpt-oss-120b`)
 - State: `TravelState` (TypedDict) in `main.py`
 - Memory: `PostgresSaver` keyed by `thread_id`
 
