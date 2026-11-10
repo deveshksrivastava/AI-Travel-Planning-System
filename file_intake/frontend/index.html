@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>File Intake</title>
+<style>
+  :root { --bg:#f6f7f9; --panel:#fff; --fg:#1d232b; --muted:#5d6875; --line:#d7dce2;
+          --accent:#2463eb; --ok-bg:#e8f6ee; --ok-fg:#14633a; --err:#b42318; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  .shell { max-width:680px; margin:32px auto; padding:0 16px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:24px; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  .field { margin-bottom:16px; }
+  .fl { display:block; font-weight:600; margin-bottom:4px; }
+  .req { color:var(--err); }
+  select, input[type=file] { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; background:#fff; font:inherit; }
+  .hint { color:var(--muted); font-size:13px; margin-top:4px; }
+  .err-text { color:var(--err); font-size:13px; margin-top:4px; }
+  .callout { padding:10px 12px; border-radius:6px; font-size:14px; margin-bottom:16px; }
+  .callout.ok { background:var(--ok-bg); color:var(--ok-fg); }
+  .callout.bad { background:#fdecea; color:var(--err); }
+  progress { width:100%; height:12px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:10px 18px; font:inherit; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .hide { display:none; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:24px; }
+  th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="shell">
+<form id="form" class="panel" novalidate>
+  <h1>Upload a data file</h1>
+
+  <div class="field">
+    <label class="fl" for="source_format">File format <span class="req">*</span></label>
+    <select name="source_format" id="source_format">
+      <option value="">-- Select Format --</option>
+    </select>
+    <div class="hint" id="fmtHint"></div>
+    <div class="err-text hide" id="fmtErr">Choose a format.</div>
+  </div>
+
+  <div class="field">
+    <label class="fl" for="file">File <span class="req">*</span></label>
+    <input type="file" id="file" name="file">
+    <div class="err-text hide" id="fileErr"></div>
+  </div>
+
+  <div id="fmtMsg" class="callout hide"></div>
+  <progress id="bar" class="hide" value="0" max="100"></progress>
+  <div class="hint" id="barText"></div>
+
+  <p><button type="submit" id="go">Upload</button>
+     <button type="button" id="cancel" class="hide">Cancel</button></p>
+
+  <table id="limits"><thead><tr><th>Format</th><th>Extension</th><th>Max size</th></tr></thead><tbody></tbody></table>
+</form>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const sel = $("source_format"), fileIn = $("file"), msg = $("fmtMsg");
+  let registry = {}, chunkSize = 8 * 1024 * 1024, aborter = null, currentId = null;
+
+  const human = n => n >= 1 << 30 ? (n / (1 << 30)).toFixed(1) + " GB"
+                   : n >= 1 << 20 ? Math.round(n / (1 << 20)) + " MB"
+                   : Math.max(1, Math.round(n / 1024)) + " KB";
+  const show = (el, text, cls) => { el.textContent = text; el.classList.remove("hide"); if (cls) el.className = "callout " + cls; };
+  const hide = el => el.classList.add("hide");
+
+  async function loadFormats() {
+    const r = await fetch("/api/formats");
+    const data = await r.json();
+    chunkSize = data.chunk_size;
+    const body = $("limits").tBodies[0];
+    for (const f of data.formats) {
+      registry[f.value] = f;
+      sel.add(new Option(f.label, f.value));
+      body.insertRow().innerHTML = `<td>${f.label}</td><td>.${f.extension}</td><td>${human(f.max_bytes)}</td>`;
+    }
+  }
+
+  function selectedFormat() { return registry[sel.value]; }
+
+  sel.addEventListener("change", () => {
+    const f = selectedFormat();
+    hide($("fmtErr"));
+    $("fmtHint").textContent = f ? `.${f.extension} up to ${human(f.max_bytes)}. ${f.note}` : "";
+    fileIn.accept = f ? "." + f.extension : "";
+    validateFile();
+  });
+  fileIn.addEventListener("change", validateFile);
+
+  function validateFile() {
+    const f = selectedFormat(), file = fileIn.files[0], err = $("fileErr");
+    hide(err);
+    if (!file) return false;
+    if (!f) return true;
+    const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "";
+    if (ext !== f.extension) { show(err, `${f.label} expects a .${f.extension} file.`); return false; }
+    if (file.size > f.max_bytes) { show(err, `File is ${human(file.size)}; ${f.label} is limited to ${human(f.max_bytes)}.`); return false; }
+    if (file.size === 0) { show(err, "File is empty."); return false; }
+    return true;
+  }
+
+  async function api(url, opts = {}) {
+    const r = await fetch(url, { ...opts, signal: aborter.signal });
+    const body = r.status === 204 ? null : await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(body?.detail || r.statusText), { status: r.status });
+    return body;
+  }
+
+  async function sendChunk(id, i, blob) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await api(`/api/uploads/${id}/chunks/${i}`, {
+          method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: blob });
+      } catch (e) {
+        if (e.name === "AbortError" || (e.status && e.status < 500 && e.status !== 400) || attempt >= 4) throw e;
+        await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
+      }
+    }
+  }
+
+  $("form").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    hide(msg);
+    const f = selectedFormat(), file = fileIn.files[0];
+    if (!f) { show($("fmtErr"), "Choose a format."); return; }
+    if (!file) { show($("fileErr"), "Choose a file."); return; }
+    if (!validateFile()) return;
+
+    aborter = new AbortController();
+    $("go").disabled = true; $("cancel").classList.remove("hide");
+    const bar = $("bar"); bar.value = 0; bar.classList.remove("hide");
+    const t0 = performance.now();
+    try {
+      const init = await api("/api/uploads", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, size: file.size, source_format: f.value }) });
+      currentId = init.upload_id;
+      for (let i = 0; i < init.total_chunks; i++) {
+        const start = i * init.chunk_size;
+        await sendChunk(currentId, i, file.slice(start, start + init.chunk_size));
+        const done = Math.min(file.size, start + init.chunk_size);
+        bar.value = (done / file.size) * 100;
+        const mbps = done / (1 << 20) / ((performance.now() - t0) / 1000);
+        $("barText").textContent = `${human(done)} / ${human(file.size)} - ${mbps.toFixed(1)} MB/s`;
+      }
+      $("barText").textContent = "Verifying...";
+      const res = await api(`/api/uploads/${currentId}/complete`, { method: "POST" });
+      show(msg, `Uploaded ${res.filename} (${human(res.size)}). SHA-256 ${res.sha256.slice(0, 16)}...`, "ok");
+      $("barText").textContent = "";
+      currentId = null;
+    } catch (e) {
+      show(msg, e.name === "AbortError" ? "Upload cancelled." : `Upload failed: ${e.message}`, "bad");
+      if (currentId) fetch(`/api/uploads/${currentId}`, { method: "DELETE" });
+      currentId = null;
+    } finally {
+      $("go").disabled = false; hide($("cancel"));
+    }
+  });
+
+  $("cancel").addEventListener("click", () => aborter && aborter.abort());
+
+  loadFormats().catch(e => show(msg, "Could not load formats: " + e.message, "bad"));
+})();
+</script>
+</body>
+</html>
